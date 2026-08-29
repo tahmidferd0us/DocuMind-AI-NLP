@@ -48,6 +48,10 @@ class RAGQueryRequest(BaseModel):
     top_k: Optional[int] = 4
     chat_history: Optional[List[Dict[str, str]]] = None
 
+class RAGIndexTextRequest(BaseModel):
+    doc_id: str
+    pages: List[Dict[str, Any]]
+
 class EvaluationRequest(BaseModel):
     reference: str
     candidate: str
@@ -140,6 +144,21 @@ async def index_document_for_rag(file: UploadFile = File(...), doc_id: str = For
                 "page_count": parsed["page_count"]
             }
         }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/api/v1/rag/index-text")
+def index_text_for_rag(req: RAGIndexTextRequest):
+    try:
+        chunks = split_document_pages(req.pages)
+        if not chunks:
+            raise HTTPException(status_code=400, detail="No indexable text in the supplied pages.")
+        vs = VectorStore()
+        vs.build_index(chunks)
+        _session_stores[req.doc_id] = vs
+        return {"success": True, "data": {"doc_id": req.doc_id, "total_chunks": len(chunks), "page_count": len(req.pages)}}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
