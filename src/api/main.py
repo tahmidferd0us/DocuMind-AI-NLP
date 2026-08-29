@@ -203,4 +203,4 @@ def evaluate(req: EvaluationRequest):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("documind_nlp.src.api.main:app", host=HOST, port=PORT, reload=True)
+    uvicorn.run("src.api.main:app", host=HOST, port=PORT, reload=True)
