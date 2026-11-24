@@ -1,4 +1,7 @@
 import numpy as np
+import json
+from pathlib import Path
+from dataclasses import asdict
 from typing import List, Dict, Any, Tuple
 from .splitter import DocumentChunk
 from ..config import EMBEDDING_MODEL, logger
@@ -15,7 +18,7 @@ def get_embedder():
     return _embedder
 
 class VectorStore:
-    """In-memory FAISS vector index with local embeddings for fast, quota-free semantic retrieval."""
+    """FAISS vector index with local embeddings and optional on-disk persistence."""
     
     def __init__(self, embedding_model_name: str = EMBEDDING_MODEL):
         self.model_name = embedding_model_name
@@ -63,3 +66,24 @@ class VectorStore:
                 results.append((self.chunks[idx], float(score)))
 
         return results
+
+    def save(self, directory: Path):
+        """Persist the FAISS index and its page-aware chunk metadata."""
+        import faiss
+        directory.mkdir(parents=True, exist_ok=True)
+        faiss.write_index(self.index, str(directory / "index.faiss"))
+        metadata = {"model_name": self.model_name, "dimension": self.dimension, "chunks": [asdict(chunk) for chunk in self.chunks]}
+        temporary = directory / "metadata.json.tmp"
+        temporary.write_text(json.dumps(metadata, ensure_ascii=False), encoding="utf-8")
+        temporary.replace(directory / "metadata.json")
+
+    @classmethod
+    def load(cls, directory: Path):
+        """Restore a previously persisted index and its page citations."""
+        import faiss
+        metadata = json.loads((directory / "metadata.json").read_text(encoding="utf-8"))
+        store = cls(metadata.get("model_name", EMBEDDING_MODEL))
+        store.index = faiss.read_index(str(directory / "index.faiss"))
+        store.dimension = metadata.get("dimension")
+        store.chunks = [DocumentChunk(**chunk) for chunk in metadata["chunks"]]
+        return store

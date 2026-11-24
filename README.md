@@ -114,9 +114,10 @@ Two response-shape gotchas the Node client has to respect:
 
 ## Notes
 
-- **The FAISS index is in-memory and per-process.** Restarting the service loses every indexed
-  document, so a question asked after a restart fails until the document is re-indexed. Moving to
-  a persisted store (Chroma, or pgvector in Supabase) is the fix when that starts to matter.
+- **RAG indexes persist across service restarts.** FAISS files and page-aware chunk metadata are
+  stored under `RAG_INDEX_DIR` (default `data/rag_indexes`) and loaded on demand after a restart.
+  Set `RAG_INDEX_DIR` to a mounted durable volume in deployments; indexes are local to the
+  service filesystem and are not shared between replicas.
 - `GEMINI_MODEL` must be a currently served model. `gemini-2.5-flash` was retired and returns
   `404 NOT_FOUND`, which surfaces as `"Failed to generate abstractive summary"` while the
   extractive summary still succeeds — an easy failure to miss. Current value is `gemini-3.6-flash`.

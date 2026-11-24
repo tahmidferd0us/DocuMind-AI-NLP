@@ -20,6 +20,8 @@ GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
 PORT = int(os.getenv("PORT", 8000))
 HOST = os.getenv("HOST", "0.0.0.0")
+rag_index_dir = Path(os.getenv("RAG_INDEX_DIR", "data/rag_indexes"))
+RAG_INDEX_DIR = (rag_index_dir if rag_index_dir.is_absolute() else base_dir / rag_index_dir).resolve()
 
 _client = None
 

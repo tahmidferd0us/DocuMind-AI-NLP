@@ -11,7 +11,8 @@ from ..analytics import compute_document_analytics
 from ..rag import split_document_pages, VectorStore, RAGEngine
 from ..exporters import generate_docx_report, generate_pdf_report
 from ..evaluation import evaluate_summary, evaluate_dataset
-from ..config import PORT, HOST
+from ..config import PORT, HOST, RAG_INDEX_DIR, logger
+import re
 
 app = FastAPI(
     title="DocuMind AI NLP Service",
@@ -27,8 +28,27 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Active in-memory session index store: doc_id -> VectorStore
+# Active index cache: doc_id -> VectorStore. Index files are the durable source of truth.
 _session_stores: Dict[str, VectorStore] = {}
+
+def _index_path(doc_id: str):
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", doc_id):
+        raise HTTPException(status_code=400, detail="Invalid document id")
+    return RAG_INDEX_DIR / doc_id
+
+def _load_index(doc_id: str):
+    if doc_id in _session_stores:
+        return _session_stores[doc_id]
+    directory = _index_path(doc_id)
+    if not (directory / "index.faiss").is_file() or not (directory / "metadata.json").is_file():
+        return None
+    try:
+        store = VectorStore.load(directory)
+        _session_stores[doc_id] = store
+        return store
+    except Exception:
+        logger.exception("Could not restore RAG index for %s", doc_id)
+        return None
 
 class TextRequest(BaseModel):
     text: str
@@ -134,6 +154,7 @@ async def index_document_for_rag(file: UploadFile = File(...), doc_id: str = For
         
         vs = VectorStore()
         vs.build_index(chunks)
+        vs.save(_index_path(doc_id))
         _session_stores[doc_id] = vs
         
         return {
@@ -155,6 +176,7 @@ def index_text_for_rag(req: RAGIndexTextRequest):
             raise HTTPException(status_code=400, detail="No indexable text in the supplied pages.")
         vs = VectorStore()
         vs.build_index(chunks)
+        vs.save(_index_path(req.doc_id))
         _session_stores[req.doc_id] = vs
         return {"success": True, "data": {"doc_id": req.doc_id, "total_chunks": len(chunks), "page_count": len(req.pages)}}
     except HTTPException:
@@ -164,10 +186,9 @@ def index_text_for_rag(req: RAGIndexTextRequest):
 
 @app.post("/api/v1/rag/query")
 def query_rag(req: RAGQueryRequest):
-    if req.doc_id not in _session_stores:
+    vs = _load_index(req.doc_id)
+    if vs is None:
         raise HTTPException(status_code=404, detail=f"Document session '{req.doc_id}' not found in vector store.")
-    
-    vs = _session_stores[req.doc_id]
     engine = RAGEngine(vs)
     res = engine.answer_question(req.question, top_k=req.top_k, chat_history=req.chat_history)
     return {"success": True, "data": res}

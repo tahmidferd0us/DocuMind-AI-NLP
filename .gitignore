@@ -6,6 +6,7 @@ __pycache__/
 .env
 .pytest_cache/
 exports/
+data/rag_indexes/
 temp/
 *.log
 .DS_Store
