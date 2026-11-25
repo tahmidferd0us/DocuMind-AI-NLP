@@ -65,6 +65,20 @@ cp .env.example .env
 `GEMINI_API_KEY` comes from <https://aistudio.google.com/apikey>. `EMBEDDING_MODEL` runs locally
 via sentence-transformers, so embeddings do not consume Gemini quota.
 
+## Tests
+
+Install the development requirements into the project virtual environment, then run the pipeline
+tests with pytest:
+
+```powershell
+.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+.venv\Scripts\python.exe -m pytest -q
+```
+
+The pipeline tests exercise parsing, summaries, embeddings/RAG, spaCy entities, analytics and
+exports. The spaCy English model and NLTK tokenizer data from the setup steps above must be present;
+the first embedding run may also download its model.
+
 ## Running
 
 ```bash
