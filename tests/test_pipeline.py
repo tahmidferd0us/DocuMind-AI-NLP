@@ -4,7 +4,7 @@ import io
 from pathlib import Path
 
 # Ensure UTF-8 output encoding on Windows console
-if sys.platform.startswith("win"):
+if sys.platform.startswith("win") and "pytest" not in sys.modules:
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
     sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 

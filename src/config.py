@@ -22,6 +22,11 @@ PORT = int(os.getenv("PORT", 8000))
 HOST = os.getenv("HOST", "0.0.0.0")
 rag_index_dir = Path(os.getenv("RAG_INDEX_DIR", "data/rag_indexes"))
 RAG_INDEX_DIR = (rag_index_dir if rag_index_dir.is_absolute() else base_dir / rag_index_dir).resolve()
+OCR_LANGUAGE = os.getenv("OCR_LANGUAGE", "eng").strip() or "eng"
+OCR_MIN_TEXT_CHARS = max(0, int(os.getenv("OCR_MIN_TEXT_CHARS", "40")))
+OCR_DPI = min(400, max(72, int(os.getenv("OCR_DPI", "200"))))
+TESSERACT_CMD = os.getenv("TESSERACT_CMD", "").strip() or None
+TESSDATA_PREFIX = os.getenv("TESSDATA_PREFIX", "").strip() or None
 
 _client = None
 

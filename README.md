@@ -56,6 +56,26 @@ python -m spacy download en_core_web_sm
 python -c "import nltk; nltk.download('punkt'); nltk.download('punkt_tab')"
 ```
 
+Scanned PDF OCR uses the local Tesseract executable. Install the Python dependencies from
+`requirements.txt` as above, then install Tesseract and its English language data on the machine
+running the NLP service.
+
+Windows: install a 64-bit build using the [UB Mannheim Tesseract installer](https://github.com/UB-Mannheim/tesseract/wiki),
+include the English language data, and add the install directory to `PATH` or set `TESSERACT_CMD`
+to the full path of `tesseract.exe`. Set `TESSDATA_PREFIX` to the folder containing the `eng.traineddata`
+file if Tesseract cannot find it automatically. In PowerShell, verify with
+`tesseract --version` and `tesseract --list-langs`.
+
+Debian/Ubuntu: install with `sudo apt install tesseract-ocr tesseract-ocr-eng`. Verify with the
+same two commands. Set `TESSDATA_PREFIX` if the language data is outside the system default path.
+
+The OCR defaults are `OCR_LANGUAGE=eng`, `OCR_MIN_TEXT_CHARS=40`, and `OCR_DPI=200`. Set these in
+`.env` when needed. Other language codes can be configured as a `+`-joined Tesseract language list
+only after installing matching trained data (for example, `eng+fra`). OCR runs only on image pages
+whose native extraction is below the text threshold. Normal text PDFs do not require Tesseract.
+OCR output can contain recognition errors; pages processed with OCR are marked in the document
+viewer so the text can be checked against the source.
+
 Then copy the environment file and add your key:
 
 ```bash
@@ -78,6 +98,9 @@ tests with pytest:
 The pipeline tests exercise parsing, summaries, embeddings/RAG, spaCy entities, analytics and
 exports. The spaCy English model and NLTK tokenizer data from the setup steps above must be present;
 the first embedding run may also download its model.
+
+OCR parser tests mock the OCR engine so they run without installing Tesseract. The full scanned-PDF
+OCR integration path requires the system Tesseract executable and language data described above.
 
 ## Running
 

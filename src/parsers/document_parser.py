@@ -1,8 +1,20 @@
 import io
+import logging
 import re
 import unicodedata
 from typing import Dict, Any, List, Union
 from pathlib import Path
+from ..config import OCR_DPI, OCR_LANGUAGE, OCR_MIN_TEXT_CHARS, TESSERACT_CMD, TESSDATA_PREFIX
+
+logger = logging.getLogger(__name__)
+
+
+class OCRUnavailableError(RuntimeError):
+    pass
+
+
+class OCRProcessingError(RuntimeError):
+    pass
 
 def clean_text(text: str) -> str:
     """Normalises whitespace, fixes encoding artifacts, and removes boilerplate noise."""
@@ -34,18 +46,113 @@ def clean_text(text: str) -> str:
     
     return text.strip()
 
-def parse_pdf(file_source: Union[bytes, io.BytesIO, str, Path]) -> List[Dict[str, Any]]:
-    """Extracts text per page from PDF using pdfplumber with fallback to pypdf."""
-    pages = []
-    
-    # Ensure BytesIO stream
+def _read_pdf_bytes(file_source: Union[bytes, io.BytesIO, str, Path]) -> bytes:
     if isinstance(file_source, bytes):
-        stream = io.BytesIO(file_source)
-    elif isinstance(file_source, (str, Path)):
-        with open(file_source, "rb") as f:
-            stream = io.BytesIO(f.read())
-    else:
-        stream = file_source
+        return file_source
+    if isinstance(file_source, (str, Path)):
+        return Path(file_source).read_bytes()
+    file_source.seek(0)
+    return file_source.read()
+
+
+def _page_text(page_number: int, raw_text: str, has_images: bool = False) -> Dict[str, Any]:
+    cleaned = clean_text(raw_text)
+    return {
+        "page_number": page_number,
+        "raw_text": raw_text,
+        "cleaned_text": cleaned,
+        "word_count": len(cleaned.split()),
+        "char_count": len(cleaned),
+        "ocr_used": False,
+        "ocr_language": None,
+        "_has_images": has_images,
+    }
+
+
+def _extract_pdf_pages(pdf_bytes: bytes) -> List[Dict[str, Any]]:
+    try:
+        import pdfplumber
+        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+            return [
+                _page_text(idx, page.extract_text(layout=True) or page.extract_text() or "", bool(page.images))
+                for idx, page in enumerate(pdf.pages, start=1)
+            ]
+    except Exception:
+        import pypdf
+        reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
+        return [_page_text(idx, page.extract_text() or "") for idx, page in enumerate(reader.pages, start=1)]
+
+
+def _ocr_page_text(page, language: str) -> str:
+    try:
+        import pytesseract
+        from PIL import Image
+    except ImportError as error:
+        raise OCRUnavailableError("OCR support is not installed on the analysis service. Ask the administrator to install the documented OCR dependencies.") from error
+
+    if TESSERACT_CMD:
+        pytesseract.pytesseract.tesseract_cmd = TESSERACT_CMD
+    pixmap = page.get_pixmap(dpi=OCR_DPI, alpha=False)
+    with Image.open(io.BytesIO(pixmap.tobytes("png"))) as image:
+        config = f'--tessdata-dir "{TESSDATA_PREFIX}"' if TESSDATA_PREFIX else ""
+        try:
+            return pytesseract.image_to_string(image, lang=language, config=config)
+        except pytesseract.pytesseract.TesseractNotFoundError as error:
+            raise OCRUnavailableError("OCR is not configured on the analysis service. Install Tesseract and its language data, then retry.") from error
+        except pytesseract.pytesseract.TesseractError as error:
+            error_text = str(error).lower()
+            if "language" in error_text or "tessdata" in error_text or "data file" in error_text:
+                raise OCRUnavailableError("The configured OCR language data is unavailable. Ask the administrator to install the requested language data.") from error
+            raise OCRProcessingError("OCR could not read a scanned page. Try a clearer PDF or contact the administrator.") from error
+        except Exception as error:
+            logger.warning("OCR page processing failed", extra={"error_type": type(error).__name__})
+            raise OCRProcessingError("OCR could not read a scanned page. Try a clearer PDF or contact the administrator.") from error
+
+
+def _apply_pdf_ocr(pdf_bytes: bytes, pages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    candidates = [
+        idx for idx, page in enumerate(pages)
+        if page["_has_images"] and len(page["cleaned_text"]) < OCR_MIN_TEXT_CHARS
+    ]
+    if not candidates:
+        return pages
+
+    try:
+        import pymupdf
+    except ImportError as error:
+        raise OCRUnavailableError("OCR support is not installed on the analysis service. Ask the administrator to install the documented OCR dependencies.") from error
+
+    try:
+        document = pymupdf.open(stream=pdf_bytes, filetype="pdf")
+        try:
+            for idx in candidates:
+                recognized = clean_text(_ocr_page_text(document[idx], OCR_LANGUAGE))
+                if recognized:
+                    pages[idx].update({
+                        "raw_text": recognized,
+                        "cleaned_text": recognized,
+                        "word_count": len(recognized.split()),
+                        "char_count": len(recognized),
+                        "ocr_used": True,
+                        "ocr_language": OCR_LANGUAGE,
+                    })
+        finally:
+            document.close()
+    except (OCRUnavailableError, OCRProcessingError):
+        raise
+    except Exception as error:
+        logger.warning("OCR PDF initialization failed", extra={"error_type": type(error).__name__})
+        raise OCRProcessingError("OCR could not read this scanned PDF. Try a clearer PDF or contact the administrator.") from error
+    return pages
+
+
+def parse_pdf(file_source: Union[bytes, io.BytesIO, str, Path]) -> List[Dict[str, Any]]:
+    """Extracts native PDF text first and OCRs image pages with sparse text."""
+    pdf_bytes = _read_pdf_bytes(file_source)
+    pages = _apply_pdf_ocr(pdf_bytes, _extract_pdf_pages(pdf_bytes))
+    for page in pages:
+        page.pop("_has_images", None)
+    return pages
 
     # Try pdfplumber first
     try:

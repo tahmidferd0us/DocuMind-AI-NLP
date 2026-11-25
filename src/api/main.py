@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from ..parsers import parse_document
+from ..parsers.document_parser import OCRProcessingError, OCRUnavailableError
 from ..summarizer import generate_extractive_summary, generate_abstractive_summary
 from ..entities import extract_entities, extract_keywords
 from ..analytics import compute_document_analytics
@@ -96,8 +97,12 @@ async def parse_file(file: UploadFile = File(...)):
         content = await file.read()
         parsed = parse_document(content, file.filename)
         return {"success": True, "data": parsed}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except OCRUnavailableError as e:
+        raise HTTPException(status_code=503, detail={"code": "OCR_UNAVAILABLE", "message": str(e)})
+    except OCRProcessingError as e:
+        raise HTTPException(status_code=422, detail={"code": "OCR_PROCESSING_ERROR", "message": str(e)})
+    except Exception:
+        raise HTTPException(status_code=400, detail="The PDF or document could not be parsed. Check the file and try again.")
 
 @app.post("/api/v1/summarize")
 def summarize(req: SummarizeRequest):
