@@ -13,6 +13,7 @@ from ..exporters import generate_docx_report, generate_pdf_report
 from ..evaluation import evaluate_summary, evaluate_dataset
 from ..config import PORT, HOST, RAG_INDEX_DIR, logger
 import re
+import shutil
 
 app = FastAPI(
     title="DocuMind AI NLP Service",
@@ -192,6 +193,14 @@ def query_rag(req: RAGQueryRequest):
     engine = RAGEngine(vs)
     res = engine.answer_question(req.question, top_k=req.top_k, chat_history=req.chat_history)
     return {"success": True, "data": res}
+
+@app.delete("/api/v1/rag/{doc_id}")
+def delete_rag_index(doc_id: str):
+    directory = _index_path(doc_id)
+    _session_stores.pop(doc_id, None)
+    if directory.exists():
+        shutil.rmtree(directory)
+    return {"success": True, "data": {"doc_id": doc_id, "deleted": True}}
 
 @app.post("/api/v1/export/docx")
 def export_docx(req: ExportRequest):
